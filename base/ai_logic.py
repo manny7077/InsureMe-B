@@ -32,9 +32,9 @@ def get_groq_client():
     print(f"🔍 Environment API Key: {'Found' if api_key else 'Not Found'}")
     
     if not api_key:
-        # Fallback to hardcoded key for development (NOT recommended for production)
-        api_key = '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'
-        print("⚠️ Warning: Using hardcoded API key. Please set GROQ_API_KEY environment variable.")
+        print("❌ GROQ_API_KEY environment variable not set")
+        print("Please set it with: export GROQ_API_KEY=your_api_key_here")
+        return None
     
     try:
         client = Groq(api_key=api_key)
