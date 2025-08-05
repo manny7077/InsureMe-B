@@ -1,0 +1,42 @@
+[
+    {
+        "tag": "Business",
+        "patterns": [
+            "I want insurance policy on media"
+        ],
+        "responses": [
+            "Here is a list of insurance policies that can help with media-related risks and liabilities."
+        ],
+        "subcat": "Business"
+    },
+    {
+        "tag": "Travel",
+        "patterns": [
+            "I want a traveling agency for insurances"
+        ],
+        "responses": [
+            "Here is a list of insurance agencies that specialize in travel insurance and can help you find the right coverage for your next trip."
+        ],
+        "subcat": "Travel"
+    },
+    {
+        "tag": "Auto",
+        "patterns": [
+            "i want a car insurance"
+        ],
+        "responses": [
+            "Here is a list of insurance agents and brokers who can help you with car insurance quotes and policies. They'll guide you in finding the best coverage for your vehicle."
+        ],
+        "subcat": "Auto"
+    },
+    {
+        "tag": "Auto",
+        "patterns": [
+            "i want a car insurance"
+        ],
+        "responses": [
+            "Here are some top-rated insurance providers that offer affordable car insurance policies: State Farm, Geico, Progressive, Allstate, and Liberty Mutual. I can also connect you with local agents who can give you personalized quotes and recommendations."
+        ],
+        "subcat": "Auto"
+    }
+]
