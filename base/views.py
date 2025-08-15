@@ -4,7 +4,6 @@ from rest_framework.views import APIView
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
-from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 from django.utils.crypto import get_random_string
@@ -13,14 +12,19 @@ from django.contrib.auth import authenticate, login
 from django.views.decorators.csrf import csrf_exempt
 from .ai_logic import get_chatbot_response
 from .models import (
- UserPolicies, Category, Company, InsurancePolicy, Claim,  Messages, Payment, User, Transaction
+    UserPolicies, Category, Company, InsurancePolicy, Claim, Messages, Payment, User, Transaction, ClaimDocument
 )
+from django.db.models import Sum, Count, Avg, Q, F, Max
 from .serializers import (
- UserPoliciesSerializer, CategorySerializer, CompanySerializer, InsurancePolicySerializer, ClaimSerializer,  UserLoginSerializer, UserSerializer
+    UserPoliciesSerializer, CategorySerializer, CompanySerializer, InsurancePolicySerializer, ClaimSerializer, UserLoginSerializer, UserSerializer
 )
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth.models import Group
+import os
+from dateutil.relativedelta import relativedelta
+from datetime import timedelta
+from decimal import Decimal
 
 
 # Create your views here.
@@ -54,15 +58,11 @@ def userLogin(request):
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logoutView(request):
     request.user.auth_token.delete()
     return Response({"message": "Logged out successfully"})
-
-
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -91,6 +91,10 @@ def join_policy(request):
     except ValueError:
         return Response({'error': 'Duration must be a number.'}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Calculate expiry date
+ 
+    expiry_date = timezone.now().date() + relativedelta(months=duration_months)
+
     # Create policy subscription
     user_policy = UserPolicies.objects.create(
         user=request.user,
@@ -98,7 +102,8 @@ def join_policy(request):
         plan_type=plan_type,
         duration=duration_months,
         momo_number=momo_number,
-        status="active"
+        status="Active",
+        expiry_date=expiry_date
     )
 
     # Log the first monthly payment only
@@ -112,9 +117,6 @@ def join_policy(request):
 
     return Response({'message': 'Successfully joined policy and first month\'s payment recorded.'}, status=status.HTTP_201_CREATED)
 
-
-
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def my_policies(request):
@@ -125,13 +127,13 @@ def my_policies(request):
         "plan": sub.plan_type,
         "duration": sub.duration,
         "status": sub.status,
-        "joined_on": sub.creation_date
+        "joined_on": sub.creation_date,
+        "expiry_date": sub.expiry_date,
+        "premium": sub.policy.premium if sub.plan_type == 'Premium' else sub.policy.regular,
+        "coverage_amount": sub.policy.premium_coverage_amount if sub.plan_type == 'Premium' else sub.policy.regular_coverage_amount
     } for sub in subs]
 
     return Response(data)
-
-
-
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -150,15 +152,34 @@ def submit_claim(request):
     
     policy = get_object_or_404(InsurancePolicy, id=policy_id)
     
-    if float(claim_amount) > float(policy.coverage_amount):
-        return Response({'error': 'Claim amount exceeds coverage'}, status=status.HTTP_400_BAD_REQUEST)
+    # Get user's subscription to determine plan type and coverage
+    user_subscription = UserPolicies.objects.filter(
+        user=request.user, 
+        policy=policy, 
+        status='Active'
+    ).first()
+    
+    if not user_subscription:
+        return Response({'error': 'You do not have an active subscription for this policy'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check coverage based on plan type
+    max_coverage = (
+        policy.premium_coverage_amount if user_subscription.plan_type == 'Premium' 
+        else policy.regular_coverage_amount
+    )
+    
+    if float(claim_amount) > float(max_coverage):
+        return Response({
+            'error': f'Claim amount exceeds {user_subscription.plan_type} plan coverage of GHS {max_coverage}'
+        }, status=status.HTTP_400_BAD_REQUEST)
     
     description = (
         f"Date: {date}\n"
         f"Time: {time}\n"
         f"Location: {location}\n"
         f"Incident: {incident_type}\n"
-        f"Claim Amount: {claim_amount}"
+        f"Claim Amount: {claim_amount}\n"
+        f"Plan Type: {user_subscription.plan_type}"
     )
     
     claim = Claim.objects.create(
@@ -169,24 +190,63 @@ def submit_claim(request):
         description=description
     )
     
+    # Handle document uploads if provided
+    uploaded_files = request.FILES.getlist('documents')
+    for file in uploaded_files:
+        ClaimDocument.objects.create(
+            claim=claim,
+            file=file
+        )
+    
     # Return more complete claim information
     return Response({
         'message': 'Claim submitted successfully',
         'claim_number': claim.claim_number,
         'claim_id': claim.id,
         'claim_date': claim.claim_date.isoformat(),  
-        'status': claim.status
+        'status': claim.status,
+        'documents_uploaded': len(uploaded_files)
     }, status=status.HTTP_201_CREATED)
-
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def list_claims(request):
     claims = Claim.objects.filter(claimant=request.user)
-    serializer = ClaimSerializer(claims, many=True)
-    return Response(serializer.data)
-
+    data = []
+    
+    for claim in claims:
+        # Get user's plan type for this claim
+        user_subscription = UserPolicies.objects.filter(
+            user=request.user,
+            policy=claim.policy,
+            status='Active'
+        ).first()
+        
+        claim_data = {
+            'id': claim.id,
+            'claim_number': claim.claim_number,
+            'title': claim.title,
+            'policy_name': claim.policy.name,
+            'policy_type': user_subscription.plan_type if user_subscription else 'Unknown',
+            'claim_amount': claim.claim_amount,
+            'payout_amount': claim.payout_amount,
+            'status': claim.status,
+            'claim_date': claim.claim_date,
+            'approval_date': claim.approval_date,
+            'adjustment_note': claim.adjustment_note,
+            'description': claim.description,
+            'documents': [
+                {
+                    'id': doc.id,
+                    'file_url': request.build_absolute_uri(doc.file.url), 
+                    'filename': os.path.basename(doc.file.name),
+                    'uploaded_at': doc.uploaded_at
+                } for doc in claim.documents.all()
+            ]
+        }
+        data.append(claim_data)
+    
+    return Response(data)
 
 @api_view(["GET"])
 def list_policies(request):
@@ -198,17 +258,20 @@ def list_policies(request):
             "id": policy.id,
             "name": policy.name,
             "description": policy.description,
-            "coverage_amount": policy.coverage_amount,
+            "premium_coverage_amount": policy.premium_coverage_amount,
+            "regular_coverage_amount": policy.regular_coverage_amount,
             "premium_price": policy.premium,
             "regular_price": policy.regular,
-            "company": policy.company.name,
-            "category": policy.category.name
-      
+           
+            "company": {
+                "name": policy.company.name,
+                "contact": policy.company.contact,
+                "rating": policy.company.rating
+            },
+            "category": policy.category.name if policy.category else None
         })
 
     return Response(data, status=status.HTTP_200_OK)
-
-
 
 @api_view(["GET"])
 def get_policy_by_id(request, pk):
@@ -217,27 +280,107 @@ def get_policy_by_id(request, pk):
     except InsurancePolicy.DoesNotExist:
         return Response({"detail": "Policy not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    serializer = InsurancePolicySerializer(policy)
-    return Response(serializer.data, status=status.HTTP_200_OK)
-
-
+    data = {
+        "id": policy.id,
+        "name": policy.name,
+        "description": policy.description,
+        "premium_coverage_amount": policy.premium_coverage_amount,
+        "regular_coverage_amount": policy.regular_coverage_amount,
+        "premium_price": policy.premium,
+        "regular_price": policy.regular,
+      
+        "company": {
+            "name": policy.company.name,
+            "contact": policy.company.contact,
+            "rating": policy.company.rating,
+            "description": policy.company.description
+        },
+        "category": policy.category.name if policy.category else None,
+        "is_active": policy.is_active
+    }
+    
+    return Response(data, status=status.HTTP_200_OK)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def recent_transactions(request):
+    # Get regular transactions (policy payments and claim payouts)
     transactions = Transaction.objects.filter(user=request.user).order_by('-timestamp')
+    
+    data = []
+    for tx in transactions:
+        transaction_data = {
+            "id": tx.id,
+            "amount": tx.amount,
+            "type": tx.transaction_type,
+            "momo_number": tx.momo_number,
+            "timestamp": tx.timestamp,
+            "policy_name": tx.policy_subscription.policy.name,
+        }
+        
+        # Add claim information for claim payouts
+        if tx.transaction_type == "Claim Payout" and tx.claim:
+            transaction_data.update({
+                "claim_number": tx.claim.claim_number,
+                "claim_title": tx.claim.title
+            })
+        
+        data.append(transaction_data)
+
+    # For backward compatibility, also include claim payouts from Payment records 
+    # that don't have corresponding Transaction records
+    existing_claim_transaction_ids = set(
+        transactions.filter(transaction_type="Claim Payout", claim__isnull=False)
+        .values_list('claim_id', flat=True)
+    )
+    
+    # Get payments for approved claims that don't have transaction records
+    payments_without_transactions = Payment.objects.filter(
+        claim__claimant=request.user,
+        is_paid=True
+    ).exclude(claim_id__in=existing_claim_transaction_ids).select_related('claim', 'claim__policy')
+    
+    for payment in payments_without_transactions:
+        # Get user's subscription for this claim
+        user_subscription = UserPolicies.objects.filter(
+            user=request.user,
+            policy=payment.claim.policy
+        ).first()
+        
+        if user_subscription:
+            transaction_data = {
+                "id": f"payment_{payment.id}",  # Unique ID for payment-based transactions
+                "amount": payment.amount,
+                "type": "Claim Payout",
+                "momo_number": user_subscription.momo_number,
+                "timestamp": payment.payment_date,
+                "policy_name": payment.claim.policy.name,
+                "claim_number": payment.claim.claim_number,
+                "claim_title": payment.claim.title
+            }
+            data.append(transaction_data)
+
+    # Sort all transactions by timestamp (most recent first)
+    data.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    # Calculate summary statistics
     policy_payment_count = transactions.filter(transaction_type="Policy Payment").count()
-    data = [{
-        "amount": tx.amount,
-        "type": tx.transaction_type,
-        "momo_number": tx.momo_number,
-        "timestamp": tx.timestamp,
-        "policy_name": tx.policy_subscription.policy.name,
-        "policy_payment_count": policy_payment_count
-    } for tx in transactions]
+    claim_payout_count = transactions.filter(transaction_type="Claim Payout").count() + payments_without_transactions.count()
+    total_paid = transactions.filter(transaction_type="Policy Payment").aggregate(Sum("amount"))["amount__sum"] or 0
+    total_received = (
+        (transactions.filter(transaction_type="Claim Payout").aggregate(Sum("amount"))["amount__sum"] or 0) +
+        (payments_without_transactions.aggregate(Sum("amount"))["amount__sum"] or 0)
+    )
 
-    return Response(data)
-
+    return Response({
+        "transactions": data,
+        "summary": {
+            "policy_payment_count": policy_payment_count,
+            "claim_payout_count": claim_payout_count,
+            "total_paid": total_paid,
+            "total_received": total_received
+        }
+    })
 
 def is_insurer(user):
     return user.groups.filter(name='Insurer').exists()
@@ -249,11 +392,43 @@ def all_claims(request):
     if not request.user.groups.filter(name='Insurer').exists():
         return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
     
-    claims = Claim.objects.all().order_by('-claim_date')  # Order by newest first
-    serializer = ClaimSerializer(claims, many=True)
-    return Response(serializer.data)
-
-
+    claims = Claim.objects.all().order_by('-claim_date')
+    data = []
+    
+    for claim in claims:
+        # Get claimant's plan type
+        user_subscription = UserPolicies.objects.filter(
+            user=claim.claimant,
+            policy=claim.policy
+        ).first()
+        
+        claim_data = {
+            'id': claim.id,
+            'claim_number': claim.claim_number,
+            'title': claim.title,
+            'claimant': f"{claim.claimant.first_name} {claim.claimant.last_name}",
+            'claimant_email': claim.claimant.email,
+            'policy_name': claim.policy.name,
+            'policy_type': user_subscription.plan_type if user_subscription else 'Unknown',
+            'claim_amount': claim.claim_amount,
+            'payout_amount': claim.payout_amount,
+            'status': claim.status,
+            'claim_date': claim.claim_date,
+            'approval_date': claim.approval_date,
+            'adjustment_note': claim.adjustment_note,
+            'description': claim.description,
+            'documents': [
+                {
+                    'id': doc.id,
+                    'file_url': request.build_absolute_uri(doc.file.url),  
+                    'filename': os.path.basename(doc.file.name),
+                    'uploaded_at': doc.uploaded_at
+                } for doc in claim.documents.all()
+            ]
+        }
+        data.append(claim_data)
+    
+    return Response(data)
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -282,6 +457,23 @@ def process_claim(request, claim_id):
         except ValueError:
             return Response({'error': 'Invalid payout amount'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Get user's subscription to validate payout amount
+        user_subscription = UserPolicies.objects.filter(
+            user=claim.claimant,
+            policy=claim.policy
+        ).first()
+        
+        if user_subscription:
+            max_coverage = (
+                claim.policy.premium_coverage_amount if user_subscription.plan_type == 'Premium'
+                else claim.policy.regular_coverage_amount
+            )
+            
+            if payout_amount > float(max_coverage):
+                return Response({
+                    'error': f'Payout amount exceeds {user_subscription.plan_type} plan coverage of GHS {max_coverage}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         claim.payout_amount = payout_amount
         claim.status = 'Approved'
         claim.approval_date = timezone.now()
@@ -293,8 +485,19 @@ def process_claim(request, claim_id):
             Payment.objects.create(
                 claim=claim,
                 amount=payout_amount,
-                is_paid=False
+                is_paid=True  # Mark as paid immediately for now
             )
+            
+            # Create a claim payout transaction
+            if user_subscription:
+                Transaction.objects.create(
+                    user=claim.claimant,
+                    policy_subscription=user_subscription,
+                    transaction_type="Claim Payout",
+                    claim=claim,
+                    amount=payout_amount,
+                    momo_number=user_subscription.momo_number
+                )
 
         claim.save()
         return Response({
@@ -306,10 +509,14 @@ def process_claim(request, claim_id):
     else:  # Denied
         claim.status = 'Denied'
         claim.approval_date = timezone.now()
+        if adjustment_note:
+            claim.adjustment_note = adjustment_note
         claim.save()
-        return Response({'message': 'Claim denied'})
-
-
+        return Response({
+            'message': 'Claim denied',
+            'claim_number': claim.claim_number,
+            'adjustment_note': claim.adjustment_note
+        })
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -356,8 +563,6 @@ def claim_timeline(request, claim_id):
 
     return Response({"timeline": timeline})
 
-
-
 @api_view(['POST'])
 def chatbot_interact(request):
     try:
@@ -390,27 +595,6 @@ def chatbot_interact(request):
             "chatbot_response": "Sorry, I'm having trouble processing your request right now."
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-
-
-
-# @api_view(['GET'])
-# def get_simple_subcategories(request):
-#     # Filter subcategories that are used in Services
-#     used_categories = Category.objects.filter(services__isnull=False).distinct()
-
-#     # Serialize the filtered subcategories
-#     category_serializer = CategorySerializer(used_categories, many=True).data
-    
-#     response = used_categories
-#         #save the response in the subcategories.json file 
-        
-#     with open('categories.json', 'w') as file:
-#         json.dump(response.json(), file)
-    
-#     return Response(category_serializer, status=status.HTTP_200_OK)
-
-
 # list main categories
 @api_view(['GET'])
 def categories(request):
@@ -418,8 +602,6 @@ def categories(request):
     category_serializer = CategorySerializer(categories, many=True)
     response_data = {'categories': category_serializer.data}
     return Response(response_data, status=status.HTTP_200_OK)
-
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -430,11 +612,75 @@ def dashboard_summary(request):
     active_policies = UserPolicies.objects.filter(user=user, status="active").count()
     total_claims = Claim.objects.filter(claimant=user).count()
     pending_claims = Claim.objects.filter(claimant=user, status="Pending").count()
+    approved_claims = Claim.objects.filter(claimant=user, status="Approved").count()
     total_paid = Transaction.objects.filter(user=user, transaction_type="Policy Payment").aggregate(Sum("amount"))["amount__sum"] or 0
+    total_received = Transaction.objects.filter(user=user, transaction_type="Claim Payout").aggregate(Sum("amount"))["amount__sum"] or 0
 
     return Response({
         "active_policies": active_policies,
         "total_claims": total_claims,
         "pending_claims": pending_claims,
+        "approved_claims": approved_claims,
         "total_paid": total_paid,
+        "total_received": total_received,
+    })
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def upload_claim_document(request, claim_id):
+    """Upload additional documents to an existing claim"""
+    claim = get_object_or_404(Claim, id=claim_id, claimant=request.user)
+    
+    if claim.status not in ['Pending', 'Submitted']:
+        return Response({
+            'error': 'Cannot upload documents to processed claims'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    uploaded_files = request.FILES.getlist('documents')
+    if not uploaded_files:
+        return Response({
+            'error': 'No files provided'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    documents = []
+    for file in uploaded_files:
+        doc = ClaimDocument.objects.create(
+            claim=claim,
+            file=file
+        )
+        documents.append({
+            'id': doc.id,
+            'file_url': doc.file.url,
+            'uploaded_at': doc.uploaded_at
+        })
+    
+    return Response({
+        'message': f'{len(documents)} documents uploaded successfully',
+        'documents': documents
+    }, status=status.HTTP_201_CREATED)
+
+
+
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def dashboard_summary(request):
+    user = request.user
+
+    # Customize depending on your models
+    active_policies = UserPolicies.objects.filter(user=user, status="Active").count()
+    total_claims = Claim.objects.filter(claimant=user).count()
+    pending_claims = Claim.objects.filter(claimant=user, status="Pending").count()
+    approved_claims = Claim.objects.filter(claimant=user, status="Approved").count()
+    total_paid = Transaction.objects.filter(user=user, transaction_type="Policy Payment").aggregate(Sum("amount"))["amount__sum"] or 0
+    total_received = Transaction.objects.filter(user=user, transaction_type="Claim Payout").aggregate(Sum("amount"))["amount__sum"] or 0
+
+    return Response({
+        "active_policies": active_policies,
+        "total_claims": total_claims,
+        "pending_claims": pending_claims,
+        "approved_claims": approved_claims,
+        "total_paid": total_paid,
+        "total_received": total_received,
     })

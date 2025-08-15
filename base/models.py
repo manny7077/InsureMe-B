@@ -22,6 +22,7 @@ class Company(models.Model):
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     availability = models.BooleanField(default=True)
     creation_date = models.DateField(auto_now_add=True)
+    contact = models.CharField(max_length=20, null=True, blank=True)
     
 
     def __str__(self):
@@ -32,10 +33,12 @@ class InsurancePolicy(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="policies", null=True)  # add this
     name = models.CharField(max_length=50)
     description = models.TextField()
-    coverage_amount = models.DecimalField(max_digits=15, decimal_places=2)  # Max payout
+    # coverage_amount = models.DecimalField(max_digits=15, decimal_places=2)  
+    premium_coverage_amount = models.DecimalField(max_digits=15, decimal_places=2)  # Max payout for Premium
+    regular_coverage_amount = models.DecimalField(max_digits=15, decimal_places=2)  # Max payout for Regular
     premium = models.DecimalField(max_digits=10, decimal_places=2)  # Premium plan monthly price
     regular = models.DecimalField(max_digits=10, decimal_places=2)  # Regular plan monthly price
-    duration = models.CharField(max_length=100)
+
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
@@ -98,6 +101,7 @@ class Transaction(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     policy_subscription = models.ForeignKey(UserPolicies, on_delete=models.CASCADE)
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE_CHOICES)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, null=True, blank=True)
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     momo_number = models.CharField(max_length=20)
     timestamp = models.DateTimeField(auto_now_add=True)
@@ -128,3 +132,13 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment of {self.amount} for {self.claim.claim_number}"
+
+
+
+class ClaimDocument(models.Model):
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name='documents')
+    file = models.FileField(upload_to='claim_documents/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Document for {self.claim.claim_number}"
