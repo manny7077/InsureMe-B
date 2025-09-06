@@ -1,60 +1,77 @@
 import os
 import json
+import time
 from difflib import get_close_matches
 import requests
 from groq import Groq
-from .models import InsurancePolicy
+from django.conf import settings
+import logging
+from .models import InsurancePolicy, Category, Company
 from .serializers import InsurancePolicySerializer
 
-# Load environment variables (add this if using .env file)
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Load environment variables
 try:
     from dotenv import load_dotenv
     load_dotenv()
-    print("✅ dotenv loaded successfully")
+    logger.info("✅ dotenv loaded successfully")
 except ImportError:
-    print("❌ python-dotenv not installed. Install with: pip install python-dotenv")
+    logger.warning("❌ python-dotenv not installed")
 
-# Load subcategories
-subcategories_path = os.path.join(os.path.dirname(__file__), 'subcategories.json')
-try:
-    with open(subcategories_path, 'r') as file:
-        subcategories = json.load(file)
-    print("✅ Subcategories loaded successfully")
-except FileNotFoundError:
-    print("❌ subcategories.json not found")
-    subcategories = []
+def get_available_categories():
+    """Get all available categories from the database"""
+    try:
+        categories = Category.objects.all().values('id', 'name')
+        return list(categories)
+    except Exception as e:
+        logger.error(f"Error fetching categories from database: {e}")
+        return []
 
-# Initialize Groq client with error handling
+# Initialize Groq client with better error handling
 def get_groq_client():
-    # Try to get API key from environment
-    api_key = os.getenv('GROQ_API_KEY')
+    # Try multiple ways to get API key
+    api_key = (
+        os.getenv('GROQ_API_KEY') or 
+        getattr(settings, 'GROQ_API_KEY', None)
+    )
     
-    print(f"🔍 Environment API Key: {'Found' if api_key else 'Not Found'}")
+    logger.info(f"🔍 Environment API Key: {'Found' if api_key else 'Not Found'}")
     
     if not api_key:
-        print("❌ GROQ_API_KEY environment variable not set")
-        print("Please set it with: export GROQ_API_KEY=your_api_key_here")
+        logger.error("❌ GROQ_API_KEY not found in environment or settings")
         return None
     
     try:
         client = Groq(api_key=api_key)
-        print("✅ Groq client initialized successfully")
+        # Test the client with a simple request
+        test_response = client.chat.completions.create(
+            messages=[{"role": "user", "content": "test"}],
+            model="llama-3.1-8b-instant",
+            max_tokens=10
+        )
+        logger.info("✅ Groq client initialized and tested successfully")
         return client
     except Exception as e:
-        print(f"❌ Error initializing Groq client: {e}")
+        logger.error(f"❌ Error initializing Groq client: {e}")
         return None
 
+# Initialize client
 client = get_groq_client()
 
-# Session-based conversation history (in production, use Redis or database)
+# Session-based conversation history
 conversation_sessions = {}
 
 def get_chatbot_response(user_input, session_id='default'):
     global client
     
+    logger.info(f"Processing chatbot request: {user_input[:50]}...")
+    
     if not client:
+        logger.error("Groq client not available")
         return {
-            "chatbot_response": "Sorry, the AI service is currently unavailable.",
+            "chatbot_response": "Sorry, the AI service is currently unavailable. Please check the API configuration.",
             "policies_response": None
         }
     
@@ -64,33 +81,53 @@ def get_chatbot_response(user_input, session_id='default'):
     
     conversation_history = conversation_sessions[session_id]
     
-    # Define the categories that should populate the label
-    valid_categories = [
-        "Disability", "Travel", "Business", "Home",
-        "Auto", "Health", "Life",
-    ]
+    available_categories = get_available_categories()
+    category_names = [cat['name'] for cat in available_categories]
     
-    # Add system message if this is a new session
+    actual_policies = []
+    try:
+        policies = InsurancePolicy.objects.filter(is_active=True).select_related('company', 'category')[:10]
+        for policy in policies:
+            actual_policies.append({
+                'name': policy.name,
+                'category': policy.category.name,
+                'company': policy.company.name,
+                'regular_price': f"GHS {float(policy.regular):.2f}",
+                'premium_price': f"GHS {float(policy.premium):.2f}",
+                'description': policy.description[:100] + '...' if len(policy.description) > 100 else policy.description
+            })
+    except Exception as e:
+        logger.error(f"Error fetching policies for system prompt: {e}")
+    
+    # Add system message if new session
     if not conversation_history:
         system_message = {
             "role": "system",
             "content": (
-                "You are an insurance assistant. Help users find insurance policies. "
-                f"When users ask about these categories: {', '.join(valid_categories)}, "
-                "respond with JSON format: {{\"label\": \"category_name\", \"answer\": \"helpful_response\"}}. "
-                "For other questions, provide helpful general responses about insurance."
+                f"You are a helpful insurance assistant for our specific insurance platform. "
+                f"IMPORTANT: You can ONLY discuss the insurance categories and policies that we actually offer. "
+                f"Our available insurance categories are: {', '.join(category_names)}. "
+                f"Here are our actual available policies: {actual_policies}. "
+                f"When users ask about insurance, you must ONLY reference these specific policies and categories. "
+                f"Do NOT mention any insurance products, companies, or coverage types that are not in our database. "
+                f"If a user asks about insurance types we don't offer, politely tell them we don't currently provide that type. "
+                f"CURRENCY: Always use GHS (Ghana Cedis) for all pricing. Never use $ or any other currency symbol. "
+                f"When mentioning prices, always format them as 'GHS X' where X is the amount. "
+                f"Always be conversational, helpful, and professional. Never respond in JSON format - always use natural language. "
+                f"When discussing policies, reference the actual names, companies, and prices from our database using GHS currency only."
             )
         }
         conversation_history.append(system_message)
     
-    # Add the user message to the conversation history
+    # Add user message
     conversation_history.append({"role": "user", "content": user_input})
     
     try:
-        # Generate a response from the chatbot using the entire conversation history
+        # Generate response
+        logger.info("Calling Groq API...")
         chat_completion = client.chat.completions.create(
             messages=conversation_history,
-            model="llama3-70b-8192",
+            model="llama-3.1-8b-instant",
             temperature=0.7,
             max_tokens=1024,
             top_p=1,
@@ -99,103 +136,129 @@ def get_chatbot_response(user_input, session_id='default'):
         )
         
         response_content = chat_completion.choices[0].message.content
+        logger.info(f"Groq API response received: {response_content[:100]}...")
         
-        # Add the assistant response to the conversation history
+        # Add assistant response to history
         conversation_history.append({"role": "assistant", "content": response_content})
         
-        # Limit conversation history to prevent token overflow
+        # Limit conversation history
         if len(conversation_history) > 20:
-            # Keep system message and last 18 messages
             conversation_sessions[session_id] = [conversation_history[0]] + conversation_history[-18:]
+        
+        detected_category = detect_insurance_category(user_input)
+        policies_response = None
+        
+        if detected_category:
+            logger.info(f"Category detected from user input: {detected_category}")
+            policies_response = get_policies_by_category_name(detected_category)
+            
+            # Log interaction
+            log_interaction(user_input, detected_category, response_content)
         
         combined_response = {
             "chatbot_response": response_content,
-            "policies_response": None
+            "policies_response": policies_response
         }
         
-        # Check if the response is in JSON format and extract the "label" field
-        try:
-            response_json = json.loads(response_content)
-            
-            if isinstance(response_json, dict) and "label" in response_json:
-                label = response_json.get("label", "")
-                
-                if label in valid_categories:
-                    category_id = get_category_id(label)
-                    policies = get_policies(category_id)
-                    combined_response["chatbot_response"] = response_json
-                    combined_response["policies_response"] = policies
-                    
-                    # Log the interaction in chat_interactions.json
-                    log_interaction(user_input, label, response_json.get("answer", ""))
-                    
-        except json.JSONDecodeError:
-            label = None
-        
-        # Return the generated JSON content or text response
         return combined_response
         
     except Exception as e:
-        print(f"Error getting chatbot response: {e}")
+        logger.error(f"Error getting chatbot response: {e}")
         return {
-            "chatbot_response": "Sorry, I'm having trouble processing your request right now.",
+            "chatbot_response": f"Sorry, I encountered an error: {str(e)}",
             "policies_response": None
         }
 
-# Rest of your functions remain the same...
-BASE_URL = 'http://localhost:5173'
-
-def get_categories():
-    try:
-        response = requests.get(f'{BASE_URL}categories/')
-        response.raise_for_status()
-        
-        with open('subcategories.json', 'w') as file:
-            json.dump(response.json(), file)
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred: {e}")
-        return None
-
-def get_category_id(subcat_name):
-    if not subcat_name or not subcategories:
-        return None
-        
-    subcat_name = subcat_name.lower()
-    subcategory_names = [subcat['name'].lower() for subcat in subcategories]
+def detect_insurance_category(user_input):
+    """Detect insurance category from user input using database categories and keywords"""
+    user_input_lower = user_input.lower()
     
-    close_match = get_close_matches(subcat_name, subcategory_names, n=1, cutoff=0.6)
+    # Get actual categories from database
+    available_categories = get_available_categories()
     
-    if close_match:
-        matched_subcategory_name = close_match[0]
-        category_id = next(
-            (subcat['id'] for subcat in subcategories 
-             if subcat['name'].lower() == matched_subcategory_name), 
-            None
-        )
-        return category_id
+    # First, try direct category name matching
+    for category in available_categories:
+        if category['name'].lower() in user_input_lower:
+            return category['name']
+    
+    # If no direct match, use keyword matching
+    category_keywords = {
+        "Health": ["health", "medical", "healthcare", "doctor", "hospital", "medicine", "clinic"],
+        "Auto": ["auto", "car", "vehicle", "driving", "motor", "automotive", "automobile"],
+        "Life": ["life", "death", "beneficiary", "term life", "whole life", "life insurance"],
+        "Travel": ["travel", "trip", "vacation", "international", "abroad", "journey"],
+        "Business": ["business", "commercial", "company", "enterprise", "liability", "professional"],
+        "Home": ["home", "house", "property", "homeowner", "dwelling", "residential"],
+        "Disability": ["disability", "disabled", "income protection", "unable to work", "injury"]
+    }
+    
+    # Check if any of our available categories match the keywords
+    for category in available_categories:
+        category_name = category['name']
+        if category_name in category_keywords:
+            keywords = category_keywords[category_name]
+            if any(keyword in user_input_lower for keyword in keywords):
+                return category_name
     
     return None
 
-def get_policies(category_id):
+def get_policies_by_category_name(category_name):
+    """Get policies by category name from the database"""
     try:
-        if category_id is None:
-            return {"message": "We don't offer these type of policies yet"}
-            
-        policies = InsurancePolicy.objects.filter(company__company_category=category_id)
+        # Find the category
+        category = Category.objects.filter(name__iexact=category_name).first()
+        
+        if not category:
+            return {"message": f"We don't offer {category_name} insurance policies yet"}
+        
+        # Get policies for this category
+        policies = InsurancePolicy.objects.filter(
+            category=category, 
+            is_active=True
+        ).select_related('company', 'category')
         
         if not policies.exists():
-            return {"message": "We don't offer these type of policies yet"}
+            return {"message": f"We don't offer {category_name} insurance policies yet"}
         
-        policy_serializer = InsurancePolicySerializer(policies, many=True)
-        return {"policies": policy_serializer.data}
+        policy_data = []
+        for policy in policies:
+            policy_info = {
+                "id": policy.id,
+                "name": policy.name,
+                "description": policy.description,
+                "company": {
+                    "name": policy.company.name,
+                    "rating": float(policy.company.rating),
+                    "contact": policy.company.contact
+                },
+                "category": policy.category.name,
+                "pricing": {
+                    "regular": {
+                        "monthly_price": f"GHS {float(policy.regular):.2f}",
+                        "monthly_price_raw": float(policy.regular),
+                        "coverage_amount": f"GHS {float(policy.regular_coverage_amount):,.2f}"
+                    },
+                    "premium": {
+                        "monthly_price": f"GHS {float(policy.premium):.2f}",
+                        "monthly_price_raw": float(policy.premium),
+                        "coverage_amount": f"GHS {float(policy.premium_coverage_amount):,.2f}"
+                    }
+                },
+                "regular_price": float(policy.regular),
+                "is_active": policy.is_active
+            }
+            policy_data.append(policy_info)
+        
+        logger.info(f"Found {len(policy_data)} policies for category {category_name}")
+        return {"policies": policy_data}
         
     except Exception as e:
-        print(f"Error fetching policies: {e}")
+        logger.error(f"Error fetching policies for category {category_name}: {e}")
         return {"message": "Error fetching policies"}
 
 def log_interaction(user_input, label, answer):
     log_entry = {
-        "timestamp": json.dumps({"$date": {"$numberLong": str(int(os.time.time() * 1000))}}),
+        "timestamp": int(time.time() * 1000),
         "tag": label,
         "user_input": user_input,
         "ai_response": answer,
@@ -203,24 +266,47 @@ def log_interaction(user_input, label, answer):
     }
     
     try:
-        log_file = 'chat_interactions.json'
+        log_file = os.path.join(os.path.dirname(__file__), 'chat_interactions.json')
+        
+        # Load existing data
         if os.path.exists(log_file):
-            with open(log_file, 'r+') as file:
+            with open(log_file, 'r') as file:
                 try:
                     data = json.load(file)
                 except json.JSONDecodeError:
                     data = []
-                
-                data.append(log_entry)
-                file.seek(0)
-                file.truncate()
-                json.dump(data, file, indent=2)
         else:
-            with open(log_file, 'w') as file:
-                json.dump([log_entry], file, indent=2)
+            data = []
+        
+        # Add new entry
+        data.append(log_entry)
+        
+        # Write back to file
+        with open(log_file, 'w') as file:
+            json.dump(data, file, indent=2)
+            
+        logger.info("Interaction logged successfully")
                 
     except Exception as e:
-        print(f"Error logging interaction: {e}")
+        logger.error(f"Error logging interaction: {e}")
+
+# Test function
+def test_chatbot():
+    """Test function to verify chatbot is working"""
+    test_input = "I need health insurance"
+    response = get_chatbot_response(test_input)
+    print(f"Test Response: {response}")
+    return response
+
+def refresh_categories():
+    """Refresh categories from database - no longer needed but kept for compatibility"""
+    try:
+        categories = get_available_categories()
+        logger.info(f"Found {len(categories)} categories in database")
+        return categories
+    except Exception as e:
+        logger.error(f"Error refreshing categories: {e}")
+        return []
 
 # Progressive chat loop with memory
 def chat_loop():
@@ -233,5 +319,5 @@ def chat_loop():
         print(f"Bot: {response}\n")
 
 if __name__ == "__main__":
-    get_categories()  # activate this to populate the subcategories JSON file
+    refresh_categories()  # Check available categories
     chat_loop()

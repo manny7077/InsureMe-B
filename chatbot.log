@@ -1,0 +1,57 @@
+INFO 2025-09-06 22:19:55,242 autoreload 17848 18372 Watching for file changes with StatReloader
+INFO 2025-09-06 22:20:00,815 basehttp 17848 15128 "GET /api/claims/ HTTP/1.1" 200 643
+INFO 2025-09-06 22:20:00,825 basehttp 17848 15128 "GET /api/my-policies/ HTTP/1.1" 200 204
+INFO 2025-09-06 22:20:00,850 basehttp 17848 15128 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:20:37,312 basehttp 17848 15128 "GET /api/claims/ HTTP/1.1" 200 643
+INFO 2025-09-06 22:20:37,355 basehttp 17848 15128 "GET /api/my-policies/ HTTP/1.1" 200 204
+INFO 2025-09-06 22:20:37,407 basehttp 17848 15128 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:20:40,115 basehttp 17848 15128 "GET /api/claims/ HTTP/1.1" 200 643
+INFO 2025-09-06 22:20:40,170 basehttp 17848 19680 "GET /api/dashboard/summary/ HTTP/1.1" 200 120
+INFO 2025-09-06 22:20:40,175 basehttp 17848 15128 "GET /api/my-policies/ HTTP/1.1" 200 204
+INFO 2025-09-06 22:20:40,189 basehttp 17848 24888 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:20:40,189 basehttp 17848 41700 "GET /api/claims/ HTTP/1.1" 200 643
+INFO 2025-09-06 22:20:40,221 basehttp 17848 19680 "GET /api/dashboard/summary/ HTTP/1.1" 200 120
+INFO 2025-09-06 22:20:40,230 basehttp 17848 41700 "GET /api/my-policies/ HTTP/1.1" 200 204
+INFO 2025-09-06 22:20:40,255 basehttp 17848 24888 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:20:40,293 basehttp 17848 24888 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:20:40,329 basehttp 17848 24888 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:20:49,678 views 17848 24888 Chatbot request received: how are you doing today...
+INFO 2025-09-06 22:20:49,679 ai_logic 17848 24888 Processing chatbot request: how are you doing today...
+INFO 2025-09-06 22:20:49,687 ai_logic 17848 24888 Calling Groq API...
+INFO 2025-09-06 22:20:50,231 ai_logic 17848 24888 Groq API response received: I'm doing great, thanks for asking. It's a lovely day to be helping people with their insurance need...
+INFO 2025-09-06 22:20:50,236 views 17848 24888 Chatbot response generated successfully
+INFO 2025-09-06 22:20:50,239 basehttp 17848 24888 "POST /api/chatbot-interaction/ HTTP/1.1" 200 438
+INFO 2025-09-06 22:21:09,890 views 17848 24888 Chatbot request received: i want something for travel, any reccomendations?...
+INFO 2025-09-06 22:21:09,891 ai_logic 17848 24888 Processing chatbot request: i want something for travel, any reccomendations?...
+INFO 2025-09-06 22:21:09,896 ai_logic 17848 24888 Calling Groq API...
+INFO 2025-09-06 22:21:10,083 basehttp 17848 41700 "GET /api/claims/ HTTP/1.1" 200 643
+INFO 2025-09-06 22:21:10,099 basehttp 17848 41700 "GET /api/my-policies/ HTTP/1.1" 200 204
+INFO 2025-09-06 22:21:10,147 basehttp 17848 41700 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:21:10,713 ai_logic 17848 24888 Groq API response received: We have a great travel insurance policy that might interest you. Our 'Travel Insurance' policy from ...
+INFO 2025-09-06 22:21:10,718 ai_logic 17848 24888 Category detected from user input: Travel
+INFO 2025-09-06 22:21:10,731 ai_logic 17848 24888 Found 1 policies for category Travel
+INFO 2025-09-06 22:21:10,739 ai_logic 17848 24888 Interaction logged successfully
+INFO 2025-09-06 22:21:10,740 views 17848 24888 Chatbot response generated successfully
+INFO 2025-09-06 22:21:10,743 basehttp 17848 24888 "POST /api/chatbot-interaction/ HTTP/1.1" 200 1595
+INFO 2025-09-06 22:21:40,082 basehttp 17848 24888 "GET /api/claims/ HTTP/1.1" 200 643
+INFO 2025-09-06 22:21:40,100 basehttp 17848 24888 "GET /api/my-policies/ HTTP/1.1" 200 204
+INFO 2025-09-06 22:21:40,145 basehttp 17848 24888 "GET /api/recent-transactions/ HTTP/1.1" 200 485
+INFO 2025-09-06 22:22:02,942 basehttp 17848 24888 "GET /api/claims/ HTTP/1.1" 200 1064
+INFO 2025-09-06 22:22:02,956 basehttp 17848 41700 "GET /api/dashboard/summary/ HTTP/1.1" 200 121
+INFO 2025-09-06 22:22:03,027 basehttp 17848 24888 "GET /api/my-policies/ HTTP/1.1" 200 822
+INFO 2025-09-06 22:22:03,036 basehttp 17848 15128 "GET /api/claims/ HTTP/1.1" 200 1064
+INFO 2025-09-06 22:22:03,052 basehttp 17848 11196 "GET /api/dashboard/summary/ HTTP/1.1" 200 121
+INFO 2025-09-06 22:22:03,072 basehttp 17848 19680 "GET /api/recent-transactions/ HTTP/1.1" 200 944
+INFO 2025-09-06 22:22:03,104 basehttp 17848 15128 "GET /api/my-policies/ HTTP/1.1" 200 822
+INFO 2025-09-06 22:22:03,154 basehttp 17848 19680 "GET /api/recent-transactions/ HTTP/1.1" 200 944
+INFO 2025-09-06 22:22:03,199 basehttp 17848 19680 "GET /api/recent-transactions/ HTTP/1.1" 200 944
+INFO 2025-09-06 22:22:03,248 basehttp 17848 19680 "GET /api/recent-transactions/ HTTP/1.1" 200 944
+INFO 2025-09-06 22:22:15,526 views 17848 19680 Chatbot request received: how many policies have i joined...
+INFO 2025-09-06 22:22:15,527 ai_logic 17848 19680 Processing chatbot request: how many policies have i joined...
+INFO 2025-09-06 22:22:15,536 ai_logic 17848 19680 Calling Groq API...
+INFO 2025-09-06 22:22:16,311 ai_logic 17848 19680 Groq API response received: To find out how many policies you've joined, I would need to access your account information. Unfort...
+INFO 2025-09-06 22:22:16,320 views 17848 19680 Chatbot response generated successfully
+INFO 2025-09-06 22:22:16,324 basehttp 17848 19680 "POST /api/chatbot-interaction/ HTTP/1.1" 200 785
+INFO 2025-09-06 22:22:32,889 basehttp 17848 19680 "GET /api/claims/ HTTP/1.1" 200 1064
+INFO 2025-09-06 22:22:32,913 basehttp 17848 19680 "GET /api/my-policies/ HTTP/1.1" 200 822
+INFO 2025-09-06 22:22:32,968 basehttp 17848 19680 "GET /api/recent-transactions/ HTTP/1.1" 200 944
