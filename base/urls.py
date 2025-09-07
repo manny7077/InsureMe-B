@@ -13,6 +13,7 @@ from .views import (
     dashboard_summary,
     all_claims,
     process_claim,
+    insurer_analytics
     # analytics_dashboard
 
 )
@@ -28,7 +29,7 @@ urlpatterns = [
     path('all-claims/', all_claims),
     path('policies/', list_policies),
     path('recent-transactions/', recent_transactions),
-    # path('analytics-dashboard/', analytics_dashboard),
+    path('insurer-analytics/',insurer_analytics ),
     path('claim-timeline/<int:claim_id>/', claim_timeline),
     path("policies/<int:pk>/", get_policy_by_id),
     path("process-claim/<int:claim_id>/", process_claim),

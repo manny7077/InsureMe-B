@@ -5,5 +5,12 @@
     "user_input": "i want something for travel, any reccomendations?",
     "ai_response": "We have a great travel insurance policy that might interest you. Our 'Travel Insurance' policy from PL Insurance offers essential protection for your trips, ensuring peace of mind when you're on the go. For a premium price of GHS 300, this policy provides coverage for unexpected events such as trip cancellations, medical emergencies, and lost or stolen luggage.\n\nWould you like to learn more about this policy or would you like me to help you purchase it?",
     "category": "Travel"
+  },
+  {
+    "timestamp": 1757240520530,
+    "tag": "Travel",
+    "user_input": "im planning on traveling what are your thoughts",
+    "ai_response": "Traveling sounds like an exciting adventure! I'd be happy to help you prepare. You know what would be a great idea to consider while planning your trip? Travel Insurance! Our Travel Insurance policy from PL Insurance offers essential protection for your trips, ensuring peace of mind when you're on the go. \n\nThis policy is quite affordable, priced at GHS 200, and has a premium price of GHS 300. It's a small investment for the peace of mind that comes with knowing you're covered in case of unexpected events or cancellations.\n\nWould you like to know more about this policy or perhaps get a quote?",
+    "category": "Travel"
   }
 ]
