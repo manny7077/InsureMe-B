@@ -74,6 +74,88 @@ def userLogin(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
+def userSignup(request):
+    """
+    User registration endpoint
+    Creates a new user account with basic information
+    """
+    try:
+        data = request.data
+        
+        # Required fields
+        username = data.get('username')
+        email = data.get('email')
+        password = data.get('password')
+        first_name = data.get('first_name')
+        last_name = data.get('last_name')
+        
+        # Validate required fields
+        if not all([username, email, password, first_name, last_name]):
+            return Response({
+                'error': 'Missing required fields',
+                'required': ['username', 'email', 'password', 'first_name', 'last_name']
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if username already exists
+        if User.objects.filter(username=username).exists():
+            return Response({
+                'error': 'Username already exists'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if email already exists
+        if User.objects.filter(email=email).exists():
+            return Response({
+                'error': 'Email already registered'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate email format
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError
+        try:
+            validate_email(email)
+        except ValidationError:
+            return Response({
+                'error': 'Invalid email format'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate password strength (minimum 8 characters)
+        if len(password) < 8:
+            return Response({
+                'error': 'Password must be at least 8 characters long'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create the user
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name
+        )
+        
+        
+        # Create authentication token
+        token, created = Token.objects.get_or_create(user=user)
+        
+        # Serialize user data
+        user_data = UserSerializer(user).data
+        
+        logger.info(f"New user registered: {username} ({email})")
+        
+        return Response({
+            'message': 'Account created successfully',
+            'token': token.key,
+            'user': user_data
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"Signup error: {e}")
+        return Response({
+            'error': 'Failed to create account',
+            'details': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logoutView(request):
     request.user.auth_token.delete()
